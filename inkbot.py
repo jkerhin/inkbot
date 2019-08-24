@@ -149,50 +149,49 @@ class InkBot:
         if re.search(regex, text):
            # Next we check to see if we have processed this comment in the past
            if sid not in self.PostList:
-              # Now we create a list with all of the matches in the body of the comment
-              matchList = re.findall(regex, text)
-              found_match = 0 
-              # At this point, we are ready to go over every match found and compare them to our inklist regex for commenting
-              for match in matchList:
-                  # Walk over the inklist, it is a list of lists, so we need two for loops
-                  for atrecord in self.inklist:
-                      for ink in atrecord:
-                          # Build up the regex, pulled from the Airtable
-                          temp_reg='\[\[' + ink['fields']['Brand+ink regex'] + '\]\]'
-                          #temp_url=ink['fields']['Scanned Page'].url()
-                          #print("%s" %(temp_url))
-                          # Build up the replacement string from Airtable
-                          if self.version == 4:
-                              if 'Scanned Page' in ink['fields']:
-                                  temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Scanned Page'][0]['url'] + ')   \n'
-                              else:
-                                  temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Imgur Address'] + ')   \n'
-                          else:
-                              temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Imgur Address'] + ')   \n'
-                          # will enter this if statement if the specific match from the comment matches this Airtable entry
-                          if re.search(temp_reg, match, flags=re.IGNORECASE):
-                              if self.debug:
-                                  print("Found Match")
-                              found_match = 1 
-                              new_match= re.sub(temp_reg, temp_replace, match, 0, flags=re.IGNORECASE)
-                              output = output + new_match
-              # After processing all matches, and building up the output, post
-              if found_match == 1:
-                 # retries for if reddit says we are posting too much, this gives us a 20min retry for posts
-                 retries = 20
-                 while retries != 0:
-                    try:
-                       # Post comment to reddit and add this post ID to our responded to comment database
-                       self.__reply_to(c, output, sid)
-                       break  # exit the loop
-                    except Exception as e:
-                       if self.debug:
-                           traceback.print_exc()
-                           print("######Sleep Exception######")
-                       time.sleep(self.wait_time)
-                       retries -= 1
-                       if retries == 0:
-                           self.___handle_exception(e)
+                # Now we create a list with all of the matches in the body of the comment
+                matchList = re.findall(regex, text)
+                found_match = 0 
+                # At this point, we are ready to go over every match found and compare them to our inklist regex for commenting
+                for match in matchList:
+                    # Walk over the inklist, it is a list of lists, so we need two for loops
+                    for ink in self.inklist:
+                        # Build up the regex, pulled from the Airtable
+                        temp_reg='\[\[' + ink['fields']['Brand+ink regex'] + '\]\]'
+                        #temp_url=ink['fields']['Scanned Page'].url()
+                        #print("%s" %(temp_url))
+                        # Build up the replacement string from Airtable
+                        if self.version == 4:
+                            if 'Scanned Page' in ink['fields']:
+                                temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Scanned Page'][0]['url'] + ')   \n'
+                            else:
+                                temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Imgur Address'] + ')   \n'
+                        else:
+                            temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Imgur Address'] + ')   \n'
+                        # will enter this if statement if the specific match from the comment matches this Airtable entry
+                        if re.search(temp_reg, match, flags=re.IGNORECASE):
+                            if self.debug:
+                                print("Found Match")
+                            found_match = 1 
+                            new_match= re.sub(temp_reg, temp_replace, match, 0, flags=re.IGNORECASE)
+                            output = output + new_match
+                # After processing all matches, and building up the output, post
+                if found_match == 1:
+                    # retries for if reddit says we are posting too much, this gives us a 20min retry for posts
+                    retries = 20
+                    while retries != 0:
+                        try:
+                        # Post comment to reddit and add this post ID to our responded to comment database
+                        self.__reply_to(c, output, sid)
+                        break  # exit the loop
+                        except Exception as e:
+                        if self.debug:
+                            traceback.print_exc()
+                            print("######Sleep Exception######")
+                        time.sleep(self.wait_time)
+                        retries -= 1
+                        if retries == 0:
+                            self.___handle_exception(e)
 
     def __inkbot_loop(self):
         try:
