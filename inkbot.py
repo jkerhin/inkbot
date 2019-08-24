@@ -7,9 +7,35 @@ import praw
 import shelve
 import traceback
 from airtable.airtable import Airtable
-from airtable import airtable
 
 warnings.simplefilter('ignore')
+
+def download_airtable(key, base, table_name):
+    """Download all of the rows from an Airtable table
+
+    Parameters
+    ==========
+    key : string
+        The API key for the Airtable that will be downloaded
+    base : string
+        The ID of the Airtable Base containing the table you wish to download
+    table_name : string
+        The name of the table you wish to download
+
+    Returns
+    =======
+    row_list : list
+        A list of collections.OrderedDict objects, one for each row in the table
+    """
+    at = Airtable(base, key)
+    resp = at.get(table_name)
+    row_list = resp.get("records")
+    offset = resp.get("offset")
+    while offset:
+        resp = at.get(table_name, offset=offset)
+        row_list.extend(resp.get("records"))
+        offset = resp.get("offset")
+    return row_list
 
 # This is a class for inkbot find and respond with a link to an image of an ink
 # On init, this class needs:
@@ -62,7 +88,7 @@ class InkBot:
         if self.debug:
             print("Getting Inks from Airtable...")
         # Populate the Ink table from Airtable
-        self.inklist = self.__get_inklist()
+        self.inklist = download_airtable(self.at_key, self.at_base, self.at_table)
 
         if self.debug:
             print("Getting replied to posts from db...")
@@ -97,26 +123,6 @@ class InkBot:
         time.sleep(self.wait_time)
         self.start()
         exit()
-
-# This is a function to get the inklist from Airtable, we do this once when we start up the script
-# and with an update to the Airtable list, the bot will need to be restarted.
-    def __get_inklist(self):
-        #if self.debug:
-        #    print("Airtable Login")
-        at = airtable.Airtable(self.at_base, self.at_key)
-        ink_list = []
-        #if self.debug:
-        #    print("Airtable get Table")
-        at_inkbot = at.get(self.at_table)
-        offset = at_inkbot.get('offset')
-        ink_list.append(at_inkbot['records'])
-        while offset:
-            #if self.debug:
-            #   print("Airtable get Offset loop")
-            at_inkbot = at.get(self.at_table, offset=offset)
-            offset = at_inkbot.get('offset')
-            ink_list.append(at_inkbot['records'])
-        return ink_list
 
 # This is the function to reply to comments, comment out the comment.reply line to be able to test
 # without posting to the subreddit, if self.debug == True, it will print to the command line the 
