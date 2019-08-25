@@ -127,14 +127,14 @@ class InkBot:
 # This is the function to reply to comments, comment out the comment.reply line to be able to test
 # without posting to the subreddit, if self.debug == True, it will print to the command line the 
 # output
-    def __reply_to(self, comment, output, sid):
+    def __reply_to(self, comment, output):
         # Debug prints, show up on the host running this bot
         if self.debug:
             print("\n---------------------------------------------")
             print("%s" %(output))
             print("\n---------------------------------------------")
-        comment.reply(output)
-        self.PostList[sid] = 1
+        reply = comment.reply(output)
+        self.PostList[str(comment.id)] = reply
         self.PostList.sync()
 
 # This is the action that is performed on a comment when it is detected.
@@ -142,7 +142,6 @@ class InkBot:
         regex = r"\[\[.*?\]\]"
         text = c.body
         output = ''
-        comment_ID = c.id
         sid = str(c.id)
     
         # We will enter this if statement only if the [[ink name]] is found in the body of the post, else we just move on
@@ -151,47 +150,43 @@ class InkBot:
            if sid not in self.PostList:
                 # Now we create a list with all of the matches in the body of the comment
                 matchList = re.findall(regex, text)
-                found_match = 0 
+                found_match = False 
                 # At this point, we are ready to go over every match found and compare them to our inklist regex for commenting
                 for match in matchList:
                     # Walk over the inklist, it is a list of lists, so we need two for loops
                     for ink in self.inklist:
                         # Build up the regex, pulled from the Airtable
                         temp_reg='\[\[' + ink['fields']['Brand+ink regex'] + '\]\]'
-                        #temp_url=ink['fields']['Scanned Page'].url()
-                        #print("%s" %(temp_url))
                         # Build up the replacement string from Airtable
-                        if self.version == 4:
-                            if 'Scanned Page' in ink['fields']:
-                                temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Scanned Page'][0]['url'] + ')   \n'
-                            else:
-                                temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Imgur Address'] + ')   \n'
+                        ink_name = ink["fields"]["Name"]
+                        if self.version == 4 and ('Scanned Page' in ink['fields']):
+                            ink_url = ink["fields"]["Scanned Page"][0]["url"]
                         else:
-                            temp_replace='*  [' + ink['fields']['Name'] + '](' + ink['fields']['Imgur Address'] + ')   \n'
+                            ink_url = ink['fields']['Imgur Address']
+                        ink_link_text = f"* [{ink_name}]({ink_url})   \n"
                         # will enter this if statement if the specific match from the comment matches this Airtable entry
                         if re.search(temp_reg, match, flags=re.IGNORECASE):
                             if self.debug:
                                 print("Found Match")
-                            found_match = 1 
-                            new_match= re.sub(temp_reg, temp_replace, match, 0, flags=re.IGNORECASE)
-                            output = output + new_match
+                            found_match = True 
+                            output = output + ink_link_text
                 # After processing all matches, and building up the output, post
-                if found_match == 1:
+                if found_match:
                     # retries for if reddit says we are posting too much, this gives us a 20min retry for posts
                     retries = 20
-                    while retries != 0:
+                    while retries > 0:
                         try:
                         # Post comment to reddit and add this post ID to our responded to comment database
-                        self.__reply_to(c, output, sid)
-                        break  # exit the loop
+                            self.__reply_to(c, output)
+                            break  # exit the loop
                         except Exception as e:
-                        if self.debug:
-                            traceback.print_exc()
-                            print("######Sleep Exception######")
+                            if self.debug:
+                                traceback.print_exc()
+                                print("######Sleep Exception######")
                         time.sleep(self.wait_time)
                         retries -= 1
-                        if retries == 0:
-                            self.___handle_exception(e)
+                    # Treat running out of retries as an exception
+                    self.___handle_exception(e)
 
     def __inkbot_loop(self):
         try:
