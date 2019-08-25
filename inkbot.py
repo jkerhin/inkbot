@@ -3,9 +3,11 @@
 import time
 import re
 import warnings
-import praw
 import shelve
 import traceback
+
+import praw
+from praw.exceptions import APIException
 from airtable.airtable import Airtable
 
 warnings.simplefilter('ignore')
@@ -90,6 +92,10 @@ class InkBot:
         # Populate the Ink table from Airtable
         self.inklist = download_airtable(self.at_key, self.at_base, self.at_table)
 
+        # Compile the regexes in the inklist; this speeds up search time by ~20x
+        for ink in self.inklist:
+            ink["compiled_re"] = re.compile(ink["fields"]["RegEx"], flags=re.IGNORECASE)
+
         if self.debug:
             print("Getting replied to posts from db...")
         # open up our comment database
@@ -138,14 +144,19 @@ class InkBot:
             try:
                 reply = comment.reply(output)
                 break
-            except Exception as e:
+            except APIException as e:
                 if self.debug:
-                    print(f"Got exception '{e}' while trying to reply'")
+                    print(f"Got PRAW exception '{e}' while trying to reply")
                 retries -= 1
                 time.sleep(self.wait_time)
                 if retries < 1:
                     print(f"Out of retries. Restarting InkBot")
                     self.___handle_exception(e)
+            except Exception as e:
+                # Crash right away if encountering a non-API exception
+                if self.debug:
+                    print(f"Got non-API exception '{e}' while trying to reply")
+                self.___handle_exception(e)
         self.PostList[str(comment.id)] = str(reply.id)
         self.PostList.sync()
 
@@ -174,7 +185,7 @@ class InkBot:
             # Walk over the inklist, it is a list of lists, so we need two for loops
             for ink in self.inklist:
                 # Build up the regex, pulled from the Airtable
-                ink_regex = ink["fields"].get("RegEx")
+                ink_regex = ink.get("compiled_re")
                 # Build up the replacement string from Airtable
                 ink_name = ink["fields"].get("Ink Name")
                 if self.version == 4 and ('Scanned Page' in ink['fields']):
@@ -184,9 +195,9 @@ class InkBot:
                 if not all([ink_regex, ink_name, ink_url]):
                     # Stop trying to process ink if unable to get all required fields
                     continue
-                ink_link_text = f"*   [{ink_name}]({ink_url})   \n"
+                ink_link_text = f"*  [{ink_name}]({ink_url})   \n"
                 # will enter this if statement if the specific match from the comment matches this Airtable entry
-                if re.search(ink_regex, match, flags=re.IGNORECASE):
+                if ink_regex.search(match):
                     if self.debug:
                         print("Found Match")
                         print(f"Found '{ink_regex}' in '{match}'")
@@ -200,10 +211,8 @@ class InkBot:
     def __inkbot_loop(self):
         try:
             # Start the comment stream for processesing
-            # DELETE ME--Old methodology, keep for now, delete line next update
-            #for self.comment in praw.helpers.comment_stream(self.r, self.subreddit, limit=self.limit):
-            for self.comment in self.r.subreddit(self.subreddit).stream.comments():
-                self.__comment_action(self.comment)
+            for comment in self.r.subreddit(self.subreddit).stream.comments():
+                self.__comment_action(comment)
         except (KeyboardInterrupt, SystemExit):
             if self.debug:
                 print("\nKeyboard exit or System Exit, closing DB file\n")
