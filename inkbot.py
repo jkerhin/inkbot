@@ -108,7 +108,7 @@ class InkBot:
                                  user_agent = self.user_agent,
                                  username = self.user_name)
             if self.debug:
-                print(self.r.user.me())
+                print(f"Logged in as '{self.r.user.me()}'")
         except Exception as e:
             self.___handle_exception(e)
 
@@ -133,8 +133,20 @@ class InkBot:
             print("\n---------------------------------------------")
             print("%s" %(output))
             print("\n---------------------------------------------")
-        reply = comment.reply(output)
-        self.PostList[str(comment.id)] = reply
+        retries = 20
+        while retries > 1:
+            try:
+                reply = comment.reply(output)
+                break
+            except Exception as e:
+                if self.debug:
+                    print(f"Got exception '{e}' while trying to reply'")
+                retries -= 1
+                time.sleep(self.wait_time)
+                if retries < 1:
+                    print(f"Out of retries. Restarting InkBot")
+                    self.___handle_exception(e)
+        self.PostList[str(comment.id)] = str(reply.id)
         self.PostList.sync()
 
 # This is the action that is performed on a comment when it is detected.
@@ -143,50 +155,47 @@ class InkBot:
         text = c.body
         output = ''
         sid = str(c.id)
-    
-        # We will enter this if statement only if the [[ink name]] is found in the body of the post, else we just move on
-        if re.search(regex, text):
-           # Next we check to see if we have processed this comment in the past
-           if sid not in self.PostList:
-                # Now we create a list with all of the matches in the body of the comment
-                matchList = re.findall(regex, text)
-                found_match = False 
-                # At this point, we are ready to go over every match found and compare them to our inklist regex for commenting
-                for match in matchList:
-                    # Walk over the inklist, it is a list of lists, so we need two for loops
-                    for ink in self.inklist:
-                        # Build up the regex, pulled from the Airtable
-                        temp_reg='\[\[' + ink['fields']['Brand+ink regex'] + '\]\]'
-                        # Build up the replacement string from Airtable
-                        ink_name = ink["fields"]["Name"]
-                        if self.version == 4 and ('Scanned Page' in ink['fields']):
-                            ink_url = ink["fields"]["Scanned Page"][0]["url"]
-                        else:
-                            ink_url = ink['fields']['Imgur Address']
-                        ink_link_text = f"* [{ink_name}]({ink_url})   \n"
-                        # will enter this if statement if the specific match from the comment matches this Airtable entry
-                        if re.search(temp_reg, match, flags=re.IGNORECASE):
-                            if self.debug:
-                                print("Found Match")
-                            found_match = True 
-                            output = output + ink_link_text
-                # After processing all matches, and building up the output, post
-                if found_match:
-                    # retries for if reddit says we are posting too much, this gives us a 20min retry for posts
-                    retries = 20
-                    while retries > 0:
-                        try:
-                        # Post comment to reddit and add this post ID to our responded to comment database
-                            self.__reply_to(c, output)
-                            break  # exit the loop
-                        except Exception as e:
-                            if self.debug:
-                                traceback.print_exc()
-                                print("######Sleep Exception######")
-                        time.sleep(self.wait_time)
-                        retries -= 1
-                    # Treat running out of retries as an exception
-                    self.___handle_exception(e)
+
+        # The new "fancypants" reddit comment editor escapes braces with a leading
+        # backslash. Solve this problem by stripping backslashes from the body text
+        text = text.replace("\\", "")
+
+        if sid in self.PostList:
+            # Already replied to this post, do not process further
+            return
+
+        match_list = re.findall(regex, text)
+        if not match_list:
+            # Did not find any matches, do not process further
+            return
+
+        # At this point, we are ready to go over every match found and compare them to our inklist regex for commenting
+        for match in match_list:
+            # Walk over the inklist, it is a list of lists, so we need two for loops
+            for ink in self.inklist:
+                # Build up the regex, pulled from the Airtable
+                ink_regex = ink["fields"].get("RegEx")
+                # Build up the replacement string from Airtable
+                ink_name = ink["fields"].get("Ink Name")
+                if self.version == 4 and ('Scanned Page' in ink['fields']):
+                    ink_url = ink["fields"]["Scanned Page"][0]["url"]
+                else:
+                    ink_url = ink["fields"].get("Imgur Address")
+                if not all([ink_regex, ink_name, ink_url]):
+                    # Stop trying to process ink if unable to get all required fields
+                    continue
+                ink_link_text = f"*   [{ink_name}]({ink_url})   \n"
+                # will enter this if statement if the specific match from the comment matches this Airtable entry
+                if re.search(ink_regex, match, flags=re.IGNORECASE):
+                    if self.debug:
+                        print("Found Match")
+                        print(f"Found '{ink_regex}' in '{match}'")
+                    output = output + ink_link_text
+        # After processing all matches, and building up the output, post as a reply
+        if output:
+            # Note that empty strings are falsey; an output of "" will not be posted
+            self.__reply_to(c, output)
+
 
     def __inkbot_loop(self):
         try:
