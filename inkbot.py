@@ -160,6 +160,46 @@ class InkBot:
         self.PostList[str(comment.id)] = str(reply.id)
         self.PostList.sync()
 
+    def __find_best_match(self, ink_str):
+        """Find the ink that matches `ink_str` the closest
+
+        Some of ink strings can have multiple regular expressions that find a match on
+        them. Find all of the matches, and then return the match with the longest
+        matching substring.
+
+        Parameters
+        ==========
+        self : InkBot
+            The current InkBot class
+        ink_str : string
+            The string that the user populated to have InkBot match on
+
+        Returns
+        =======
+        best_match : OrderedDict
+            An OrderedDict from `self.inklist` containing the best matching row
+
+        """
+        candidate_matches = []
+        for ink in self.inklist:
+            ink_regex = ink.get("compiled_re")
+            if not ink_regex:
+                # Somehow compiled regex didn't get populated...
+                continue
+            match = ink_regex.search(ink_str)
+            if match:
+                candidate_matches.append((match, ink))
+        best_match = None
+        # Force matching substr to be at least 5 characters
+        longest_substr = 5
+        for match, ink in candidate_matches:
+            substr_len = len(match.group(0))
+            if substr_len > longest_substr:
+                longest_substr = substr_len
+                best_match = ink
+        return best_match
+
+
 # This is the action that is performed on a comment when it is detected.
     def __comment_action(self, c):
         regex = r"\[\[.*?\]\]"
@@ -182,26 +222,24 @@ class InkBot:
 
         # At this point, we are ready to go over every match found and compare them to our inklist regex for commenting
         for match in match_list:
-            # Walk over the inklist, it is a list of lists, so we need two for loops
-            for ink in self.inklist:
-                # Build up the regex, pulled from the Airtable
-                ink_regex = ink.get("compiled_re")
-                # Build up the replacement string from Airtable
-                ink_name = ink["fields"].get("Ink Name")
-                if self.version == 4 and ('Scanned Page' in ink['fields']):
-                    ink_url = ink["fields"]["Scanned Page"][0]["url"]
-                else:
-                    ink_url = ink["fields"].get("Imgur Address")
-                if not all([ink_regex, ink_name, ink_url]):
-                    # Stop trying to process ink if unable to get all required fields
-                    continue
-                ink_link_text = f"*  [{ink_name}]({ink_url})   \n"
-                # will enter this if statement if the specific match from the comment matches this Airtable entry
-                if ink_regex.search(match):
-                    if self.debug:
-                        print("Found Match")
-                        print(f"Found '{ink_regex}' in '{match}'")
-                    output = output + ink_link_text
+            ink = self.__find_best_match(match)
+            if not ink:
+                # No match found, check next match
+                continue
+
+            ink_name = ink["fields"].get("Ink Name")
+            if self.version == 4 and ('Scanned Page' in ink['fields']):
+                ink_url = ink["fields"]["Scanned Page"][0]["url"]
+            else:
+                ink_url = ink["fields"].get("Imgur Address")
+
+            if not all([ink_name, ink_url]):
+                # Stop trying to process ink if unable to get all required fields
+                continue
+
+            ink_link_text = f"*  [{ink_name}]({ink_url})   \n"
+            output = output + ink_link_text
+
         # After processing all matches, and building up the output, post as a reply
         if output:
             # Note that empty strings are falsey; an output of "" will not be posted
