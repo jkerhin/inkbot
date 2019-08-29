@@ -39,6 +39,87 @@ def download_airtable(key, base, table_name):
         offset = resp.get("offset")
     return row_list
 
+def find_best_match(inklist, token):
+    """Find the ink that matches `token` the closest
+
+    Some of ink strings can have multiple regular expressions that find a match on
+    them. Find all of the matches, and then return the match with the longest
+    matching substring.
+
+    Parameters
+    ==========
+    inklist : list of OrderedDict objects
+        A list of OrderedDict objects containing information about each ink, as well as
+        a compiled regular expression (`compiled_re`) describing how the ink should be
+        matched
+    token : string
+        The string that the user populated to have InkBot match on
+
+    Returns
+    =======
+    best_match : OrderedDict
+        An OrderedDict from `self.inklist` containing the best matching row
+
+    """
+    candidate_matches = []
+    for ink in inklist:
+        ink_regex = ink.get("compiled_re")
+        if not ink_regex:
+            # Somehow compiled regex didn't get populated...
+            continue
+        match = ink_regex.search(token)
+        if match:
+            candidate_matches.append((match, ink))
+    best_match = None
+    # Force matching substr to be at least 5 characters
+    longest_substr = 5
+    for match, ink in candidate_matches:
+        substr_len = len(match.group(0))
+        if substr_len > longest_substr:
+            longest_substr = substr_len
+            best_match = ink
+    return best_match
+
+def format_comment(ink_matches):
+    """Builds an InkBot comment based on the list of matched inks
+
+    Given a list of "ink" OrderedDict objects, extract the properties needed to build
+    up an InkBot reply; namely the full ink Name and a URL to the ink's swab
+
+    Parameters
+    ==========
+    ink_matches : list of OrderedDict objects
+        A list of OrderedDict objects containing information about each ink
+
+    Returns
+    =======
+    reply_body : string
+        A reply string composed of a list of inks and links to their swabs
+
+    """
+    reply_body = ""
+    for ink in ink_matches:
+        if not ink:
+            # Skip non-matching inks
+            continue
+        ink_name = ink["fields"].get("Ink Name")
+        if "Scanned Page" not in ink["fields"]:
+            ink_url = ink["fields"].get("Imgur Address")
+        else:
+            # TODO: Improve logic, update for /u/Klundtasaur Inkcyclopedia
+            # (instead of my copy of his table)
+            scanned_page = ink["fields"].get("Scanned Page")
+            ink_url = scanned_page.split()[-1]
+            ink_url = ink_url.replace("(", "").replace(")", "")
+        if not (ink_name and ink_url):
+            # Problem extracting name and/or URL
+            # TODO: log this
+            continue
+        row = f"* [{ink_name}]({ink_url})\n"
+        reply_body = reply_body + row
+
+    return reply_body
+
 # This is a class for inkbot find and respond with a link to an image of an ink
 # On init, this class needs:
 #     a Reddit User Name, Password, User Agent, and subreddit
@@ -160,90 +241,31 @@ class InkBot:
         self.PostList[str(comment.id)] = str(reply.id)
         self.PostList.sync()
 
-    def __find_best_match(self, ink_str):
-        """Find the ink that matches `ink_str` the closest
-
-        Some of ink strings can have multiple regular expressions that find a match on
-        them. Find all of the matches, and then return the match with the longest
-        matching substring.
-
-        Parameters
-        ==========
-        self : InkBot
-            The current InkBot class
-        ink_str : string
-            The string that the user populated to have InkBot match on
-
-        Returns
-        =======
-        best_match : OrderedDict
-            An OrderedDict from `self.inklist` containing the best matching row
-
-        """
-        candidate_matches = []
-        for ink in self.inklist:
-            ink_regex = ink.get("compiled_re")
-            if not ink_regex:
-                # Somehow compiled regex didn't get populated...
-                continue
-            match = ink_regex.search(ink_str)
-            if match:
-                candidate_matches.append((match, ink))
-        best_match = None
-        # Force matching substr to be at least 5 characters
-        longest_substr = 5
-        for match, ink in candidate_matches:
-            substr_len = len(match.group(0))
-            if substr_len > longest_substr:
-                longest_substr = substr_len
-                best_match = ink
-        return best_match
-
-
 # This is the action that is performed on a comment when it is detected.
     def __comment_action(self, c):
         regex = r"\[\[.*?\]\]"
         text = c.body
-        output = ''
         sid = str(c.id)
-
-        # The new "fancypants" reddit comment editor escapes braces with a leading
-        # backslash. Solve this problem by stripping backslashes from the body text
-        text = text.replace("\\", "")
 
         if sid in self.PostList:
             # Already replied to this post, do not process further
             return
+
+        # The new "fancypants" reddit comment editor escapes braces with a leading
+        # backslash. Solve this problem by stripping backslashes from the body text
+        text = text.replace("\\", "")
 
         match_list = re.findall(regex, text)
         if not match_list:
             # Did not find any matches, do not process further
             return
 
-        # At this point, we are ready to go over every match found and compare them to our inklist regex for commenting
-        for match in match_list:
-            ink = self.__find_best_match(match)
-            if not ink:
-                # No match found, check next match
-                continue
+        ink_matches = [find_best_match(self.inklist, token) for token in match_list]
+        comment_body = format_comment(ink_matches)
 
-            ink_name = ink["fields"].get("Ink Name")
-            if self.version == 4 and ('Scanned Page' in ink['fields']):
-                ink_url = ink["fields"]["Scanned Page"][0]["url"]
-            else:
-                ink_url = ink["fields"].get("Imgur Address")
+        if comment_body:
+            self.__reply_to(c, comment_body)
 
-            if not all([ink_name, ink_url]):
-                # Stop trying to process ink if unable to get all required fields
-                continue
-
-            ink_link_text = f"*  [{ink_name}]({ink_url})   \n"
-            output = output + ink_link_text
-
-        # After processing all matches, and building up the output, post as a reply
-        if output:
-            # Note that empty strings are falsey; an output of "" will not be posted
-            self.__reply_to(c, output)
 
 
     def __inkbot_loop(self):
