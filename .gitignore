@@ -1,0 +1,4 @@
+data/
+__pycache__*
+# Keep keys out of repo!
+inkbot.ini
