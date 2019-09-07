@@ -5,7 +5,8 @@ from inkbot import InkBot
 
 def main():
     """Start up inkbot"""
-    config_pth = utils.get_inkbot_dir() / "inkbot.ini"
+    inkbot_dir = utils.get_inkbot_dir()
+    config_pth = inkbot_dir / "inkbot.ini"
     config = utils.read_config(config_pth)
     config = utils.populate_config(config)
 
@@ -19,6 +20,7 @@ def main():
         at_base=config["airtable"].get("base"),
         at_table=config["airtable"].get("table"),
         subreddit=config["inkbot"].get("subreddit"),
+        working_dir=inkbot_dir,
         debug=True,
     )
     inkbot.start()

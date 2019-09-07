@@ -5,6 +5,7 @@ import re
 import warnings
 import shelve
 import traceback
+from pathlib import Path
 
 import praw
 from praw.exceptions import APIException
@@ -106,11 +107,8 @@ def format_comment(ink_matches):
         if "Scanned Page" not in ink["fields"]:
             ink_url = ink["fields"].get("Imgur Address")
         else:
-            # TODO: Improve logic, update for /u/Klundtasaur Inkcyclopedia
-            # (instead of my copy of his table)
             scanned_page = ink["fields"].get("Scanned Page")
-            ink_url = scanned_page.split()[-1]
-            ink_url = ink_url.replace("(", "").replace(")", "")
+            ink_url = scanned_page[0]["url"]
         if not (ink_name and ink_url):
             # Problem extracting name and/or URL
             # TODO: log this
@@ -141,6 +139,7 @@ class InkBot:
                  limit=1000,
                  wait_time = 60,
                  version = 4,
+                 working_dir = ".",
                  debug=False ):
 
         self.debug = debug
@@ -159,6 +158,7 @@ class InkBot:
         self.subreddit     = subreddit
         self.limit         = limit
         self.wait_time     = wait_time
+        self.working_dir   = Path(working_dir)
         self.version       = version
 
 
@@ -180,7 +180,11 @@ class InkBot:
         if self.debug:
             print("Getting replied to posts from db...")
         # open up our comment database
-        self.PostList = shelve.open('inkbot_list.db')
+        ink_list_pth = self.working_dir / "inkbot_list.db"
+        self.PostList = shelve.open(str(ink_list_pth))
+        if self.debug:
+            #TODO: Log!
+            print(f"Opened {ink_list_pth} and found {len(self.PostList.keys())} keys")
 
         if self.debug:
             print("Going into Main Loop...")
